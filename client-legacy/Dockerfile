@@ -37,6 +37,9 @@ ENV VITE_WALLETCONNECT_PROJECT_ID=${VITE_WALLETCONNECT_PROJECT_ID}
 # Base path for serving under /admin behind the ingress. Defaults to '/'
 # so nothing breaks if built standalone; CI passes --build-arg VITE_BASE=/admin/.
 ARG VITE_BASE=/
+# The wallet-SDK dependency graph (metamask-sdk, reown/appkit, walletconnect,
+# coinbase) exhausts Node's default heap during Rollup bundling — raise it.
+ENV NODE_OPTIONS=--max-old-space-size=6144
 RUN npm run build -- --base=${VITE_BASE}
 
 # ── nginx stage ──────────────────────────────────────────────
