@@ -1,7 +1,7 @@
 # DeFa — Polygon Amoy stack. One-VM deployment.
 #
 # Services:
-#   mongo         Mongo 7 with persistent volume (defa-arc-testnet DB)
+#   mongo         Mongo 7 with persistent volume (defa-arc-amoy DB)
 #   server        Node backend on port 5050 — served internally
 #   client        Vite v2 lender UI (nginx :80) — the DeFa demo surface
 #   legacy        Vite Colosseum client (nginx :80) — the PSP + admin portal
@@ -41,13 +41,19 @@ services:
       - ./server/.env.production
     environment:
       # Inside compose, mongo is reachable by service name.
-      MONGODB_URI: mongodb://mongo:27017/defa-arc-testnet
+      MONGODB_URI: mongodb://mongo:27017/defa-arc-amoy
       PORT: 5050
     depends_on:
       mongo:
         condition: service_healthy
     ports:
       - "5050:5050"
+    # User-uploaded KYC docs / credit memos land here via the local-fs
+    # fallback in server/fileUpload.js. Volume keeps them alive across
+    # container restarts. Not needed if Azure Blob is configured
+    # (connectionString env var) — then uploads route to Azure directly.
+    volumes:
+      - server_uploads:/app/public/paymate-files
 
   client:
     build:
@@ -90,3 +96,4 @@ services:
 
 volumes:
   mongo_data:
+  server_uploads:
