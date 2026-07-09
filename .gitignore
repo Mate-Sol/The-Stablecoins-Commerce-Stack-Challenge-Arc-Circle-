@@ -11,6 +11,10 @@ out/
 .env.*
 !.env.example
 
+# Kubernetes Secrets — contain live MONGODB_URI / private keys / JWT secret
+*-secret.yaml
+*-secret.yml
+
 # Foundry
 contracts/out/
 contracts/cache/
