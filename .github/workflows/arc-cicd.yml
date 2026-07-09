@@ -1,13 +1,12 @@
 # =====================================================================
-#  Name: Arc-CICD
-#  Description: Build Docker images for the 3 Arc services (arc-ui, arc-admin,
-#               arc-be), run security scans, and deploy each to Google
-#               Kubernetes Engine (GKE). One matrix entry per service.
-#  Trigger: On push to 'main' (client/**, client-legacy/**, server/**) or
-#           manual workflow dispatch
+#  Name: Arc-Hackathon-CICD
+#  Description: Build Docker images for the 3 Arc services (admin, ui,
+#               backend), run security scans, and deploy to Google
+#               Kubernetes Engine (GKE) in the arc-hackathon namespace
+#  Trigger: On push to 'main' branch or manual workflow dispatch
 # =====================================================================
 
-name: Arc-CICD
+name: Arc-Hackathon-CICD
 
 permissions:
   contents: read
@@ -19,22 +18,18 @@ permissions:
 on:
   push:
     branches: ["main"]
-    paths:
-      - "client/**"
-      - "client-legacy/**"
-      - "server/**"
-      - ".github/workflows/arc-cicd.yml"
   workflow_dispatch:
 
 env:
   REGISTRY: docker.io
-  GKE_CLUSTER: beta-env          # beta cluster — NOT prod (im-prod)
+  # Beta cluster — NEVER prod (im-prod). Hackathon stacks deploy to beta only.
+  GKE_CLUSTER: beta-env
   GKE_ZONE: us-central1-a
   NAMESPACE: arc-hackathon
   CI: false
 
 jobs:
-  # 🔑 1️⃣ Secret Scanning (repo-wide, runs once)
+  # 🔑 1️⃣ Secret Scanning
   secret-scan:
     runs-on: ubuntu-latest
     steps:
@@ -49,7 +44,7 @@ jobs:
         env:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
-  # 📦 2️⃣ Dependency + IaC Scan (repo-wide, runs once)
+  # 📦 2️⃣ Dependency + IaC Scan
   dependency-scan:
     runs-on: ubuntu-latest
     steps:
@@ -76,28 +71,21 @@ jobs:
           name: sbom
           path: sbom.json
 
-  # 🐳🔍🚀 3️⃣ Build → Scan image → Deploy (one run per service)
-  build-scan-deploy:
+  # 🐳 3️⃣ Build & Push Docker Images (one per service)
+  build:
     runs-on: ubuntu-latest
     needs: [secret-scan, dependency-scan]
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          - service: arc-ui
-            image: matesol/arc-ui
-            context: ./client
-            deployment: arc-ui
-          - service: arc-admin
-            image: matesol/arc-admin
-            context: ./client-legacy
-            deployment: arc-admin
-          - service: arc-be
-            image: matesol/arc-be
+          - image: matesol/arc-be
             context: ./server
-            deployment: arc-be
-
-    name: build-scan-deploy (${{ matrix.service }})
+          - image: matesol/arc-ui
+            context: ./client
+          - image: matesol/arc-admin
+            context: ./client-legacy
 
     steps:
       - uses: actions/checkout@v4
@@ -138,6 +126,29 @@ jobs:
           tags: ${{ matrix.image }}:main
           labels: ${{ steps.meta.outputs.labels }}
 
+  # 🔍 4️⃣ Scan Built Docker Images
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - matesol/arc-be
+          - matesol/arc-ui
+          - matesol/arc-admin
+
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_UNAME }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Pull Image
+        run: docker pull ${{ matrix.image }}:main
+
       - name: Scan Docker Image with Trivy
         uses: aquasecurity/trivy-action@v0.20.0
         with:
@@ -147,16 +158,35 @@ jobs:
           ignore-unfixed: true
           scanners: vuln
 
-      # 🧾 Generate Provenance (SLSA) — optional, enable if needed
-      # - uses: slsa-framework/slsa-github-generator@v2.0.0
+  # 🧾 5️⃣ Generate Provenance (SLSA)
+  # provenance:
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   steps:
+  #     - uses: slsa-framework/slsa-github-generator@v2.0.0
 
+  # 🚀 6️⃣ Deploy to Google Kubernetes Engine (GKE)
+  deploy:
+    name: Deploy to GKE
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    strategy:
+      fail-fast: false
+      matrix:
+        deployment:
+          - arc-be
+          - arc-ui
+          - arc-admin
+
+    steps:
       - name: Authenticate to Google Cloud via OIDC
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.BETA_GKE_WIF_PROVIDER }}
           service_account: ${{ secrets.BETA_GKE_GKE_SA }}
 
-      - name: Set up GKE credentials
+      - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
