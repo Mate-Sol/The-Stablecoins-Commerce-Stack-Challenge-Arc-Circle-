@@ -8,7 +8,11 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 # npm install (not ci) — tolerant of lockfile drift across npm major versions
 # (the runner's node:20-alpine ships npm 10; locks may be generated with 11).
-RUN npm install --no-fund --no-audit
+# --ignore-scripts skips native-module compiles (usb/node-hid/keccak, pulled in
+# by wallet libs) that need Python + a C toolchain absent from alpine. Those are
+# Node-only hardware-wallet transports, unused in the browser bundle. esbuild's
+# Linux binary still resolves via its @esbuild/linux-x64 optional package.
+RUN npm install --no-fund --no-audit --ignore-scripts
 
 COPY . .
 
