@@ -6,7 +6,9 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --no-fund --no-audit
+# npm install (not ci) — tolerant of lockfile drift across npm major versions
+# (the runner's node:20-alpine ships npm 10; locks may be generated with 11).
+RUN npm install --no-fund --no-audit
 
 COPY . .
 
